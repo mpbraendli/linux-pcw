@@ -1965,6 +1965,14 @@ static const struct axidds_core_info ad9122_6_00_a_info = {
 	.issue_sync_en = 1,
 };
 
+static const struct axidds_core_info ad9122_6_00_a_info_dummy = {
+	.version = ADI_AXI_PCORE_VER(9, 0, 'a'),
+	.standalone = true,
+	.rate = 1,
+	.data_format = ADI_DATA_FORMAT,
+	.chip_info = &cf_axi_dds_chip_info_tbl[ID_AD9122],
+};
+
 static const struct axidds_core_info ad9361_6_00_a_info = {
 	.version = ADI_AXI_PCORE_VER(9, 0, 'a'),
 	.standalone = true,
@@ -2090,6 +2098,7 @@ static const struct axidds_core_info adrv9002_rx2tx2_9_01_b_info = {
 /* Match table for of_platform binding */
 static const struct of_device_id cf_axi_dds_of_match[] = {
 	{ .compatible = "adi,axi-ad9122-6.00.a", .data = &ad9122_6_00_a_info},
+	{ .compatible = "adi,axi-ad9122-6.00.a-dummy", .data = &ad9122_6_00_a_info_dummy},
 	{ .compatible = "adi,axi-ad9136-1.0", .data = &ad9144_7_00_a_info },
 	{ .compatible = "adi,axi-ad9144-1.0", .data = &ad9144_7_00_a_info, },
 	{ .compatible = "adi,axi-ad9154-1.0", .data = &ad9144_7_00_a_info, },
@@ -2210,6 +2219,9 @@ static void dds_clk_notifier_unreg(void *data)
 	clk_notifier_unregister(st->clk, &st->clk_nb);
 }
 
+bool ad9122_reset_done = false;
+EXPORT_SYMBOL(ad9122_reset_done);
+
 static int cf_axi_dds_probe(struct platform_device *pdev)
 {
 
@@ -2245,6 +2257,10 @@ static int cf_axi_dds_probe(struct platform_device *pdev)
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	st->regs_size = resource_size(res);
 	st->regs = devm_ioremap(&pdev->dev, res->start, resource_size(res));
+
+	if (!ad9122_reset_done)
+		ad9122_reset_done = true;
+
 	if (!st->regs)
 		return -ENOMEM;
 
