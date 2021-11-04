@@ -10,3 +10,4 @@ obj-$(CONFIG_ADA4250) += ada4250.o
 obj-$(CONFIG_HMC425) += hmc425a.o
 obj-$(CONFIG_PE4312) += pe4312.o
 obj-$(CONFIG_PE43711) += pe43711.o
+obj-$(CONFIG_HMC1023) += hmc1023.o
