@@ -1123,7 +1123,7 @@ static int axiadc_probe(struct platform_device *pdev)
 	get_device(axiadc_spidev.dev_spi);
 
 	if (is_dummy) {
-		indio_dev = iio_device_alloc(sizeof(*st));
+		indio_dev = iio_device_alloc(&pdev->dev, sizeof(*st));
 	}
 	else {
 		ret = devm_add_action_or_reset(&pdev->dev, axiadc_release_converter, axiadc_spidev.dev_spi);
@@ -1207,7 +1207,6 @@ static int axiadc_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	indio_dev->dev.parent = &pdev->dev;
 	indio_dev->name = pdev->dev.of_node->name;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->available_scan_masks = conv->chip_info->scan_masks;
