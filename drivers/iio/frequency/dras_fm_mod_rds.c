@@ -20,19 +20,15 @@
 #include <linux/iio/sysfs.h>
 
 
-#define DRIVER_NAME			"dras-fm-repeater"
+#define DRIVER_NAME			"dras-fm-mod-rds"
 #define NB_OF_CHANNELS			32
 
 // global attributes
-#define ADDR_CHANNEL_EN			32*4
-#define ADDR_TARGET_PWR			33*4
-#define ADDR_SQUELCH			34*4
-#define ADDR_MAXGAIN			35*4
-#define ADDR_DSP_VERSION		36*4
-
-// channel attributes
-#define ADDR_RSSI(x)			(0+x)*4 // 16bit LSB first rssi, second 16bit second rssi
-#define ADDR_DDSINC(x)			(16+x)*4 // 16bit LSB first channel, second 16bit second channel
+#define ADDR_DSP_VERSION		0*4
+#define ADDR_AUDIO_METER		1*4
+#define ADDR_AUDIO_RDS_GAIN		2*4
+#define ADDR_PILOT_MOD_GAIN		3*4
+#define ADDR_CHANNEL_EN			4*4
 
 #define MAX_FM_FREQUENCY		108100000
 #define MIN_FM_FREQUENCY		87400000
@@ -99,12 +95,12 @@
 //    ::   ::
 //   static IIO_DEVICE_ATTR(ch31_<ATTR>, <RW>, <SHOW>, <STORE>, CH31_<REG>);
 // example:
-//   IIO_DEVICE_ATTR_ALL_CH(gain_tx1, S_IRUGO | S_IWUSR, dras_fm_repeater_show, dras_fm_repeater_store, REG_GAIN_TX1)
+//   IIO_DEVICE_ATTR_ALL_CH(gain_tx1, S_IRUGO | S_IWUSR, dras_fm_mod_rds_show, dras_fm_mod_rds_store, REG_GAIN_TX1)
 //     expansion:
-//     static IIO_DEVICE_ATTR(ch0_gain_tx1, S_IRUGO | S_IWUSR, dras_fm_repeater_show, dras_fm_repeater_store, CH0_REG_GAIN_TX1);
-//     static IIO_DEVICE_ATTR(ch1_gain_tx1, S_IRUGO | S_IWUSR, dras_fm_repeater_show, dras_fm_repeater_store, CH1_REG_GAIN_TX1);
+//     static IIO_DEVICE_ATTR(ch0_gain_tx1, S_IRUGO | S_IWUSR, dras_fm_mod_rds_show, dras_fm_mod_rds_store, CH0_REG_GAIN_TX1);
+//     static IIO_DEVICE_ATTR(ch1_gain_tx1, S_IRUGO | S_IWUSR, dras_fm_mod_rds_show, dras_fm_mod_rds_store, CH1_REG_GAIN_TX1);
 //      ::   ::
-//     static IIO_DEVICE_ATTR(ch31_gain_tx1, S_IRUGO | S_IWUSR, dras_fm_repeater_show, dras_fm_repeater_store, CH31_REG_GAIN_TX1);
+//     static IIO_DEVICE_ATTR(ch31_gain_tx1, S_IRUGO | S_IWUSR, dras_fm_mod_rds_show, dras_fm_mod_rds_store, CH31_REG_GAIN_TX1);
 #define IIO_DEVICE_ATTR_ALL_CH(ATTR, RW, SHOW, STORE, REG) \
 	static IIO_DEVICE_ATTR(ch0_##ATTR, RW, SHOW, STORE, CH0_##REG); \
 	static IIO_DEVICE_ATTR(ch1_##ATTR, RW, SHOW, STORE, CH1_##REG); \
@@ -186,16 +182,18 @@
 	&iio_dev_attr_ch31_##ATTR.dev_attr.attr
 
 enum chan_num{
-	REG_ALL_CH(REG_FREQUENCY),	// being expanded for all channels
-	REG_ALL_CH(REG_RSSI),	// being expanded for all channels
+	//REG_ALL_CH(REG_FREQUENCY),	// being expanded for all channels
+	//REG_ALL_CH(REG_RSSI),	// being expanded for all channels
 	REG_ALL_CH(REG_CHANNEL_ENABLE),	// being expanded for all channels
 	REG_DSP_VERSION,
-	REG_TARGET_POWER,
-	REG_SQUELCH,
-	REG_MAX_GAIN
+	REG_AUDIO_METER,
+	REG_AUDIO_GAIN,
+	REG_RDS_GAIN,
+	REG_PILOT_GAIN,
+	REG_MOD_GAIN
 };
 
-struct dras_fm_repeater_state {
+struct dras_fm_mod_rds_state {
 	struct iio_info		iio_info;
 	void __iomem		*regs;
 	struct mutex		lock;
@@ -203,17 +201,17 @@ struct dras_fm_repeater_state {
 	uint32_t		fs_adc;
 };
 
-static void dras_fm_repeater_write(struct dras_fm_repeater_state *st, unsigned reg, u32 val)
+static void dras_fm_mod_rds_write(struct dras_fm_mod_rds_state *st, unsigned reg, u32 val)
 {
 	iowrite32(val, st->regs + reg);
 }
 
-static u32 dras_fm_repeater_read(struct dras_fm_repeater_state *st, unsigned reg)
+static u32 dras_fm_mod_rds_read(struct dras_fm_mod_rds_state *st, unsigned reg)
 {
 	return ioread32(st->regs + reg);
 }
 
-static int dras_fm_repeater_write_raw(struct iio_dev *indio_dev,
+static int dras_fm_mod_rds_write_raw(struct iio_dev *indio_dev,
 			       struct iio_chan_spec const *chan,
 			       int val,
 			       int val2,
@@ -233,7 +231,7 @@ static int dras_fm_repeater_write_raw(struct iio_dev *indio_dev,
 	return ret;
 }
 
-static int dras_fm_repeater_read_raw(struct iio_dev *indio_dev,
+static int dras_fm_mod_rds_read_raw(struct iio_dev *indio_dev,
 			   struct iio_chan_spec const *chan,
 			   int *val,
 			   int *val2,
@@ -253,13 +251,13 @@ static int dras_fm_repeater_read_raw(struct iio_dev *indio_dev,
 	return ret;
 }
 
-static ssize_t dras_fm_repeater_store(struct device *dev,
+static ssize_t dras_fm_mod_rds_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t len)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
-	struct dras_fm_repeater_state *st = iio_priv(indio_dev);
+	struct dras_fm_mod_rds_state *st = iio_priv(indio_dev);
 	long val;
 	int ret;
 	u64 temp64;
@@ -281,19 +279,21 @@ static ssize_t dras_fm_repeater_store(struct device *dev,
 	/* channel registers */
 	mutex_lock(&indio_dev->mlock);
 	match = 0;
+
 	for(ch=0; ch<NB_OF_CHANNELS; ch++){
+
 		if((u32)this_attr->address == REG_CH(ch, REG_CHANNEL_ENABLE)){
 			match = 1;
 			if(val<0 || val>1){
 				ret = -EINVAL;
 				break;
 			}
-			temp32 = dras_fm_repeater_read(st, ADDR_CHANNEL_EN) & ~(1<<ch);
+			temp32 = dras_fm_mod_rds_read(st, ADDR_CHANNEL_EN) & ~(1<<ch);
 			temp32 += (u32)val << ch;
-			dras_fm_repeater_write(st, ADDR_CHANNEL_EN, temp32);
+			dras_fm_mod_rds_write(st, ADDR_CHANNEL_EN, temp32);
 			break;
 		}
-		else if((u32)this_attr->address == REG_CH(ch, REG_FREQUENCY)){
+/*		else if((u32)this_attr->address == REG_CH(ch, REG_FREQUENCY)){
 			match = 1;
 			regoffset = ch >> 1;
 			subchannel = ch & 1;
@@ -305,51 +305,62 @@ static ssize_t dras_fm_repeater_store(struct device *dev,
 			temp64 = div_s64(temp64,st->fs_adc);
 			val = (int)temp64 & 0xFFFF;
 			if(subchannel==0){
-				temp32 = dras_fm_repeater_read(st, ADDR_DDSINC(regoffset)) & 0xFFFF0000;
+				temp32 = dras_fm_mod_rds_read(st, ADDR_DDSINC(regoffset)) & 0xFFFF0000;
 				temp32 += (u32)val;
-				dras_fm_repeater_write(st, ADDR_DDSINC(regoffset), temp32);
+				dras_fm_mod_rds_write(st, ADDR_DDSINC(regoffset), temp32);
 			}else{
-				temp32 = dras_fm_repeater_read(st, ADDR_DDSINC(regoffset)) & 0xFFFF;
+				temp32 = dras_fm_mod_rds_read(st, ADDR_DDSINC(regoffset)) & 0xFFFF;
 				temp32 += (u32)val << 16;
-				dras_fm_repeater_write(st, ADDR_DDSINC(regoffset), temp32);
+				dras_fm_mod_rds_write(st, ADDR_DDSINC(regoffset), temp32);
 			}
 			break;
 		}
+*/
 	}
 	if(match){
 		mutex_unlock(&indio_dev->mlock);
 		return ret ? ret : len;
 	}
 
+
 	/* unique registers */
 	switch ((u32)this_attr->address) {
 
-	case REG_TARGET_POWER:
-		if(val<0 || val>32767){
-			ret = -EINVAL;
-			break;
-		}
-		temp32 = dras_fm_repeater_read(st, ADDR_TARGET_PWR) & 0xFFFF0000;
-		temp32 += (u32)val;
-		dras_fm_repeater_write(st, ADDR_TARGET_PWR, temp32);
-		break;
-	case REG_SQUELCH:
-		if(val<0 || val>32767){
-			ret = -EINVAL;
-			break;
-		}
-		temp32 = dras_fm_repeater_read(st, ADDR_SQUELCH) & 0xFFFF0000;
-		temp32 += (u32)val;
-		dras_fm_repeater_write(st, ADDR_SQUELCH, temp32);
-		break;
-	case REG_MAX_GAIN:
+	case REG_AUDIO_GAIN:
 		if(val<0 || val>65535){
 			ret = -EINVAL;
 			break;
 		}
-		temp32 = dras_fm_repeater_read(st, ADDR_MAXGAIN) & 0xFFFF0000;
+		temp32 = dras_fm_mod_rds_read(st, ADDR_AUDIO_RDS_GAIN) & 0xFFFF0000;
 		temp32 += (u32)val;
-		dras_fm_repeater_write(st, ADDR_MAXGAIN, temp32);
+		dras_fm_mod_rds_write(st, ADDR_AUDIO_RDS_GAIN, temp32);
+		break;
+	case REG_RDS_GAIN:
+		if(val<0 || val>65535){
+			ret = -EINVAL;
+			break;
+		}
+		temp32 = dras_fm_mod_rds_read(st, ADDR_AUDIO_RDS_GAIN) & 0xFFFF;
+		temp32 += (u32)val << 16;
+		dras_fm_mod_rds_write(st, ADDR_AUDIO_RDS_GAIN, temp32);
+		break;
+	case REG_PILOT_GAIN:
+		if(val<0 || val>65535){
+			ret = -EINVAL;
+			break;
+		}
+		temp32 = dras_fm_mod_rds_read(st, ADDR_PILOT_MOD_GAIN) & 0xFFFF0000;
+		temp32 += (u32)val;
+		dras_fm_mod_rds_write(st, ADDR_PILOT_MOD_GAIN, temp32);
+		break;
+	case REG_MOD_GAIN:
+		if(val<0 || val>65535){
+			ret = -EINVAL;
+			break;
+		}
+		temp32 = dras_fm_mod_rds_read(st, ADDR_PILOT_MOD_GAIN) & 0xFFFF;
+		temp32 += (u32)val << 16;
+		dras_fm_mod_rds_write(st, ADDR_PILOT_MOD_GAIN, temp32);
 		break;
 	default:
 		ret = -ENODEV;
@@ -360,13 +371,13 @@ static ssize_t dras_fm_repeater_store(struct device *dev,
 	return ret ? ret : len;
 }
 
-static ssize_t dras_fm_repeater_show(struct device *dev,
+static ssize_t dras_fm_mod_rds_show(struct device *dev,
 			struct device_attribute *attr,
 			char *buf)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
-	struct dras_fm_repeater_state *st = iio_priv(indio_dev);
+	struct dras_fm_mod_rds_state *st = iio_priv(indio_dev);
 	int val;
 	int ret = 0;
 	u64 temp64;
@@ -381,26 +392,18 @@ static ssize_t dras_fm_repeater_show(struct device *dev,
 	for(ch=0; ch<NB_OF_CHANNELS; ch++){
 		if((u32)this_attr->address == REG_CH(ch, REG_CHANNEL_ENABLE)){
 			match = 1;
-			val = dras_fm_repeater_read(st, ADDR_CHANNEL_EN);
+			val = dras_fm_mod_rds_read(st, ADDR_CHANNEL_EN);
 			val = (val >> ch) & 1;
 			break;
-		}else if((u32)this_attr->address == REG_CH(ch, REG_RSSI)){
+		}
+/*		else if((u32)this_attr->address == REG_CH(ch, REG_FREQUENCY)){
 			match = 1;
 			regoffset = ch >> 1;
 			subchannel = ch & 1;
 			if(subchannel==0)
-				val = dras_fm_repeater_read(st, ADDR_RSSI(regoffset)) & 0xFFFF;
+				val = dras_fm_mod_rds_read(st, ADDR_DDSINC(regoffset)) & 0xFFFF;
 			else
-				val = dras_fm_repeater_read(st, ADDR_RSSI(regoffset)) >> 16;
-			break;
-		}else if((u32)this_attr->address == REG_CH(ch, REG_FREQUENCY)){
-			match = 1;
-			regoffset = ch >> 1;
-			subchannel = ch & 1;
-			if(subchannel==0)
-				val = dras_fm_repeater_read(st, ADDR_DDSINC(regoffset)) & 0xFFFF;
-			else
-				val = dras_fm_repeater_read(st, ADDR_DDSINC(regoffset)) >> 16;
+				val = dras_fm_mod_rds_read(st, ADDR_DDSINC(regoffset)) >> 16;
 			if(val>1<<15){
 				temp64 = (u64)val * st->fs_adc;
 				val = ((int)(temp64 >> 18)) - (st->fs_adc>>2); // f_test = fm_f_mix+(fm_dds_inc*clk/2^18-clk/4)/3
@@ -414,6 +417,7 @@ static ssize_t dras_fm_repeater_show(struct device *dev,
 			val += (int)temp64;
 			break;
 		}
+*/
 	}
 	if(match){
 		mutex_unlock(&indio_dev->mlock);
@@ -425,16 +429,22 @@ static ssize_t dras_fm_repeater_show(struct device *dev,
 	/* unique registers */
 	switch ((u32)this_attr->address) {
 	case REG_DSP_VERSION:
-		val = dras_fm_repeater_read(st, ADDR_DSP_VERSION);
+		val = dras_fm_mod_rds_read(st, ADDR_DSP_VERSION);
 		break;
-	case REG_TARGET_POWER:
-		val = dras_fm_repeater_read(st, ADDR_TARGET_PWR) & 0x7FFF;
+	case REG_AUDIO_METER:
+		val = dras_fm_mod_rds_read(st, ADDR_AUDIO_METER) & 0xFFFF;
 		break;
-	case REG_SQUELCH:
-		val = dras_fm_repeater_read(st, ADDR_SQUELCH) & 0x7FFF;
+	case REG_AUDIO_GAIN:
+		val = dras_fm_mod_rds_read(st, ADDR_AUDIO_RDS_GAIN) & 0xFFFF;
 		break;
-	case REG_MAX_GAIN:
-		val = dras_fm_repeater_read(st, ADDR_MAXGAIN) & 0xFFFF;
+	case REG_RDS_GAIN:
+		val = (dras_fm_mod_rds_read(st, ADDR_AUDIO_RDS_GAIN) >> 16) & 0xFFFF;
+		break;
+	case REG_PILOT_GAIN:
+		val = dras_fm_mod_rds_read(st, ADDR_PILOT_MOD_GAIN) & 0xFFFF;
+		break;
+	case REG_MOD_GAIN:
+		val = (dras_fm_mod_rds_read(st, ADDR_PILOT_MOD_GAIN) >> 16) & 0xFFFF;
 		break;
 	default:
 		ret = -ENODEV;
@@ -449,81 +459,87 @@ static ssize_t dras_fm_repeater_show(struct device *dev,
 }
 
 
+//IIO_DEVICE_ATTR_ALL_CH(frequency, S_IRUGO | S_IWUSR,
+//			dras_fm_mod_rds_show,
+//			dras_fm_mod_rds_store,
+//			REG_FREQUENCY);
+
 IIO_DEVICE_ATTR_ALL_CH(channel_enable, S_IRUGO | S_IWUSR,
-			dras_fm_repeater_show,
-			dras_fm_repeater_store,
+			dras_fm_mod_rds_show,
+			dras_fm_mod_rds_store,
 			REG_CHANNEL_ENABLE);
 
-IIO_DEVICE_ATTR_ALL_CH(frequency, S_IRUGO | S_IWUSR,
-			dras_fm_repeater_show,
-			dras_fm_repeater_store,
-			REG_FREQUENCY);
-
-IIO_DEVICE_ATTR_ALL_CH(rssi, S_IRUGO,
-			dras_fm_repeater_show,
-			dras_fm_repeater_store,
-			REG_RSSI);
-
 static IIO_DEVICE_ATTR(dsp_version, S_IRUGO,
-			dras_fm_repeater_show,
-			dras_fm_repeater_store,
+			dras_fm_mod_rds_show,
+			dras_fm_mod_rds_store,
 			REG_DSP_VERSION);
 
-static IIO_DEVICE_ATTR(target_power, S_IRUGO | S_IWUSR,
-			dras_fm_repeater_show,
-			dras_fm_repeater_store,
-			REG_TARGET_POWER);
+static IIO_DEVICE_ATTR(audio_meter, S_IRUGO,
+			dras_fm_mod_rds_show,
+			dras_fm_mod_rds_store,
+			REG_AUDIO_METER);
 
-static IIO_DEVICE_ATTR(squelch, S_IRUGO | S_IWUSR,
-			dras_fm_repeater_show,
-			dras_fm_repeater_store,
-			REG_SQUELCH);
+static IIO_DEVICE_ATTR(audio_gain, S_IRUGO | S_IWUSR,
+			dras_fm_mod_rds_show,
+			dras_fm_mod_rds_store,
+			REG_AUDIO_GAIN);
 
-static IIO_DEVICE_ATTR(max_gain, S_IRUGO | S_IWUSR,
-			dras_fm_repeater_show,
-			dras_fm_repeater_store,
-			REG_MAX_GAIN);
+static IIO_DEVICE_ATTR(rds_gain, S_IRUGO | S_IWUSR,
+			dras_fm_mod_rds_show,
+			dras_fm_mod_rds_store,
+			REG_RDS_GAIN);
+
+static IIO_DEVICE_ATTR(pilot_gain, S_IRUGO | S_IWUSR,
+			dras_fm_mod_rds_show,
+			dras_fm_mod_rds_store,
+			REG_PILOT_GAIN);
+
+static IIO_DEVICE_ATTR(mod_gain, S_IRUGO | S_IWUSR,
+			dras_fm_mod_rds_show,
+			dras_fm_mod_rds_store,
+			REG_MOD_GAIN);
 
 
-static struct attribute *dras_fm_repeater_attributes[] = {
+static struct attribute *dras_fm_mod_rds_attributes[] = {
+//	IIO_ATTR_ALL_CH(frequency),
 	IIO_ATTR_ALL_CH(channel_enable),
-	IIO_ATTR_ALL_CH(frequency),
-	IIO_ATTR_ALL_CH(rssi),
 	&iio_dev_attr_dsp_version.dev_attr.attr,
-	&iio_dev_attr_target_power.dev_attr.attr,
-	&iio_dev_attr_squelch.dev_attr.attr,
-	&iio_dev_attr_max_gain.dev_attr.attr,
+	&iio_dev_attr_audio_meter.dev_attr.attr,
+	&iio_dev_attr_audio_gain.dev_attr.attr,
+	&iio_dev_attr_rds_gain.dev_attr.attr,
+	&iio_dev_attr_pilot_gain.dev_attr.attr,
+	&iio_dev_attr_mod_gain.dev_attr.attr,
 	NULL,
 };
 
 
-static const struct attribute_group dras_fm_repeater_attribute_group = {
-	.attrs = dras_fm_repeater_attributes,
+static const struct attribute_group dras_fm_mod_rds_attribute_group = {
+	.attrs = dras_fm_mod_rds_attributes,
 };
 
-static const struct iio_info dras_fm_repeater_info = {
-	.read_raw = &dras_fm_repeater_read_raw,
-	.write_raw = &dras_fm_repeater_write_raw,
-	.attrs = &dras_fm_repeater_attribute_group,
+static const struct iio_info dras_fm_mod_rds_info = {
+	.read_raw = &dras_fm_mod_rds_read_raw,
+	.write_raw = &dras_fm_mod_rds_write_raw,
+	.attrs = &dras_fm_mod_rds_attribute_group,
 };
 
-static const struct iio_chan_spec dras_fm_repeater_channels[] = {				// add more channels here if desired
+static const struct iio_chan_spec dras_fm_mod_rds_channels[] = {				// add more channels here if desired
 };
 
 /* Match table for of_platform binding */
-static const struct of_device_id dras_fm_repeater_of_match[] = {
-	{ .compatible = "fpga,dras-fm-repeater", },
+static const struct of_device_id dras_fm_mod_rds_of_match[] = {
+	{ .compatible = "fpga,dras-fm-mod-rds", },
 	{ },
 };
 
-MODULE_DEVICE_TABLE(of, dras_fm_repeater_of_match);
+MODULE_DEVICE_TABLE(of, dras_fm_mod_rds_of_match);
 
-static int dras_fm_repeater_probe(struct platform_device *pdev)
+static int dras_fm_mod_rds_probe(struct platform_device *pdev)
 {
 	const struct of_device_id *id;						// return of of_match_node()
 	struct device_node *np = pdev->dev.of_node;			// param of of_match_node()
 	struct resource *res;
-	struct dras_fm_repeater_state *st;
+	struct dras_fm_mod_rds_state *st;
 	struct iio_dev *indio_dev;
 	int ret; //, i, n;
 
@@ -534,7 +550,7 @@ static int dras_fm_repeater_probe(struct platform_device *pdev)
 			np->name);
 
 	/* looking for "compatible" */
-	id = of_match_device(dras_fm_repeater_of_match, &pdev->dev);
+	id = of_match_device(dras_fm_mod_rds_of_match, &pdev->dev);
 	if (!id)
 		return -ENODEV;
 
@@ -565,18 +581,18 @@ static int dras_fm_repeater_probe(struct platform_device *pdev)
 	}
 
 	if(of_property_read_u32(np, "required,fs-adc", &st->fs_adc)){
-		printk("DRAS-FM-REPEATER: ***ERROR! \"required,fs-adc\" missing in devicetree?\n");
+		printk("DRAS-FM-MOD-RDS: ***ERROR! \"required,fs-adc\" missing in devicetree?\n");
 		goto err_iio_device_free;
 	}
 	if(st->fs_adc == 0){
-		printk("DRAS-FM-REPEATER: ***ERROR! \"required,fs-adc\" equal to 0 Hz\n");
+		printk("DRAS-FM-MOD-RDS: ***ERROR! \"required,fs-adc\" equal to 0 Hz\n");
 		goto err_iio_device_free;
 	}
 
 	indio_dev->name = np->name;
-	indio_dev->channels = dras_fm_repeater_channels;
-	indio_dev->num_channels = ARRAY_SIZE(dras_fm_repeater_channels);
-	indio_dev->info = &dras_fm_repeater_info;
+	indio_dev->channels = dras_fm_mod_rds_channels;
+	indio_dev->num_channels = ARRAY_SIZE(dras_fm_mod_rds_channels);
+	indio_dev->info = &dras_fm_mod_rds_info;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 
 	ret = iio_device_register(indio_dev);
@@ -591,7 +607,7 @@ err_iio_device_free:
 	return ret;
 }
 
-static int dras_fm_repeater_remove(struct platform_device *pdev)
+static int dras_fm_mod_rds_remove(struct platform_device *pdev)
 {
 	struct iio_dev *indio_dev = platform_get_drvdata(pdev);
 	iio_device_unregister(indio_dev);
@@ -599,17 +615,17 @@ static int dras_fm_repeater_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static struct platform_driver dras_fm_repeater_driver = {
-	.probe		= dras_fm_repeater_probe,
-	.remove		= dras_fm_repeater_remove,
+static struct platform_driver dras_fm_mod_rds_driver = {
+	.probe		= dras_fm_mod_rds_probe,
+	.remove		= dras_fm_mod_rds_remove,
 	.driver = {
 		.name = DRIVER_NAME,
 		.owner = THIS_MODULE,
-		.of_match_table = dras_fm_repeater_of_match,
+		.of_match_table = dras_fm_mod_rds_of_match,
 	},
 };
 
-module_platform_driver(dras_fm_repeater_driver);
+module_platform_driver(dras_fm_mod_rds_driver);
 
 MODULE_AUTHOR("Andreas Zutter <zutter@precisionwave.com>");
 MODULE_DESCRIPTION("DRAS FM REPEATER FPGA-IP driver");
