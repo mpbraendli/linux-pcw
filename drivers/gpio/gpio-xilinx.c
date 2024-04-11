@@ -339,6 +339,8 @@ static int xgpio_probe(struct platform_device *pdev)
 		return status;
 	}
 
+	printk("axi-gpio base=%d\n", chip->gc.base);
+
 	return 0;
 }
 

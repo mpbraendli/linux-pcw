@@ -50,4 +50,12 @@ config XBAND_CONTROLLER
 	  To compile this driver as a module, choose M here: the
 	  module will be called xband_controller.
 		
+config FFT_ACCELERATOR
+	tristate "FFT Accelerator driver"
+	help
+	  Say yes here to build support for FFT Accelerator driver
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called fft_accelerator.
+		
 endmenu
