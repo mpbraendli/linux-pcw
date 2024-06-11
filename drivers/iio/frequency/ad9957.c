@@ -176,6 +176,25 @@ static ssize_t ad9957_store(struct device *dev,
 	u64 val64, val2_64;
 	u32 rem;
 	int ret;
+
+	{
+		const char *pos = buf;
+		while (*pos) {
+			if (!((*pos >= '0' && *pos <= '9') || *pos == '.')) {
+				printk("AD9957 freq '%s' must only contain [0-9.].\n", buf);
+				return -EINVAL;
+			}
+			pos++;
+		}
+	}
+
+	{
+		char s2[4] = "000";
+		sscanf(buf, "%ld.%c%c%c", &val, &s2[0], &s2[1], &s2[2]);
+		sscanf(s2, "%ld", &val2);
+	}
+
+#if 0
 	char s[101], *s1, s2[4] = "000", *p = s;
 	const char delim = '.';
 
@@ -213,6 +232,7 @@ static ssize_t ad9957_store(struct device *dev,
 			return ret;
 		val2 = 0;
 	}
+#endif
 
 	// printk("val  =  %ld\n",val);
 	// printk("val2 =  %ld\n",val2);
@@ -232,7 +252,8 @@ static ssize_t ad9957_store(struct device *dev,
 		val64 += val2_64;
 
 		if (val64 > 0xffffffff) {
-			val64 = 0xffffffff;
+			printk("val2 saturating!\n");
+			return -EINVAL;
 		}
 
 		ret = ad9957_write_64(st, 0x0e, 0x0cb00000, (u32)val64);
