@@ -27,12 +27,18 @@ static struct iio_chan_spec_ext_info fft_accelerator_ext_info[] = {
 	{ },
 };
 
-static const struct iio_info fft_accelerator_empty_info = { };
+/* we need that dummy function to get a valid iio_info object */
+static int fft_accelerator_read_raw_dummy(struct iio_dev *indio_dev,
+			   const struct iio_chan_spec *chan,
+			   int *val, int *val2, long info)
+{
+	return -EINVAL;
+}
 
 static const struct iio_chan_spec fft_accelerator_chan_spec[] = {
 	{
 		.type = IIO_VOLTAGE,
-		.extend_name = "TX",
+		.extend_name = "out",
 		.output = 1,
 		.indexed = 1,
 		.channel = 0,
@@ -43,7 +49,7 @@ static const struct iio_chan_spec fft_accelerator_chan_spec[] = {
 	},
 	{
 		.type = IIO_VOLTAGE,
-		.extend_name = "RX",
+		.extend_name = "in",
 		.output = 0,
 		.indexed = 1,
 		.channel = 1,
@@ -54,23 +60,6 @@ static const struct iio_chan_spec fft_accelerator_chan_spec[] = {
 	}
 };
 
-static int fft_accelerator_tx_preenable(struct iio_dev *indio_dev)
-{
-	printk("FFT Accelerator tx preenable\n");
-	return 0;
-}
-
-static int fft_accelerator_tx_postdisable(struct iio_dev *indio_dev)
-{
-	printk("FFT Accelerator tx postdisable\n");
-	return 0;
-}
-
-static const struct iio_buffer_setup_ops fft_accelerator_tx_setup_ops = {
-	.preenable = fft_accelerator_tx_preenable,
-	.postdisable = fft_accelerator_tx_postdisable,
-};
-
 static int fft_accelerator_submit_block(
 		struct iio_dma_buffer_queue *queue,
 		struct iio_dma_buffer_block *block)
@@ -78,9 +67,11 @@ static int fft_accelerator_submit_block(
 	struct iio_dev *indio_dev = queue->driver_data;
 
 	if (indio_dev->direction == IIO_DEVICE_DIRECTION_IN) {
+		printk("FFT Accelerator submit IN\n");
 		block->block.bytes_used = block->block.size;
 		iio_dmaengine_buffer_submit_block(queue, block, DMA_DEV_TO_MEM);
 	} else {
+		printk("FFT Accelerator submit OUT\n");
 		iio_dmaengine_buffer_submit_block(queue, block, DMA_MEM_TO_DEV);
 	}
 
@@ -164,7 +155,7 @@ static const struct attribute_group fft_accelerator_attribute_group = {
 };
 
 static const struct iio_info fft_accelerator_info = {
-	// .driver_module = THIS_MODULE,
+	.read_raw = &fft_accelerator_read_raw_dummy,
 	.attrs = &fft_accelerator_attribute_group,
 };
 
@@ -177,9 +168,9 @@ MODULE_DEVICE_TABLE(of, fft_accelerator_of_match);
 static int fft_accelerator_probe(struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;	// for devicetree parsing
-	struct iio_dev *indio_dev, *indio_dev_tx, *indio_dev_rx;
+	struct iio_dev *indio_dev;
 	struct fft_accelerator_state *st;
-	struct iio_buffer *buffer_tx, *buffer_rx;
+	struct iio_buffer *buffer_out, *buffer_in;
 	const struct of_device_id *id;
 	int ret;
 
@@ -196,79 +187,36 @@ static int fft_accelerator_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	indio_dev_tx = devm_iio_device_alloc(&pdev->dev, 0);
-	if (!indio_dev_tx) {
-		printk("\nFFT Accelerator tx: -ENOMEM\n");
-		return -ENOMEM;
-	}
-
-	indio_dev_rx = devm_iio_device_alloc(&pdev->dev, 0);
-	if (!indio_dev_rx) {
-		printk("\nFFT Accelerator rx: -ENOMEM\n");
-		return -ENOMEM;
-	}
-
-	printk("FFT Accelerator iio_priv\n");
 	st = iio_priv(indio_dev);
-
 	indio_dev->name = np->name;
-	indio_dev->modes = INDIO_DIRECT_MODE;
+	indio_dev->modes = INDIO_DIRECT_MODE | INDIO_BUFFER_HARDWARE;
 	indio_dev->info = &fft_accelerator_info;
 	indio_dev->channels = fft_accelerator_chan_spec,
 	indio_dev->num_channels = ARRAY_SIZE(fft_accelerator_chan_spec);
 
-	printk("FFT Accelerator devm_iio_device_register\n");
+	buffer_in = devm_iio_dmaengine_buffer_alloc(&pdev->dev,
+			"in", &fft_accelerator_dma_buffer_ops, NULL);
+	if (IS_ERR(buffer_in)) {
+		printk("FFT Accelerator buffer_in dmaengine_buffer_alloc IS ERR!\n");
+		return PTR_ERR(buffer_in);
+	}
+	iio_device_attach_buffer(indio_dev, buffer_in);
+
+	buffer_out = devm_iio_dmaengine_buffer_alloc(&pdev->dev,
+			"out", &fft_accelerator_dma_buffer_ops, NULL);
+	if (IS_ERR(buffer_out)) {
+		printk("FFT Accelerator buffer_out dmaengine_buffer_alloc IS ERR!\n");
+		return PTR_ERR(buffer_out);
+	}
+	iio_device_attach_buffer(indio_dev, buffer_out);
+
 	ret = devm_iio_device_register(&pdev->dev, indio_dev);
-	if(ret)
+	if (ret < 0) {
+		dev_err(&pdev->dev, "devm_iio_device_register failed");
 		return ret;
+	}
 
-	printk("FFT Accelerator platform_set_drvdata\n");
 	platform_set_drvdata(pdev, indio_dev);
-
-	indio_dev_tx->dev.parent = &pdev->dev;
-	indio_dev_tx->name = "fft-accelerator-tx";
-	indio_dev_tx->modes = INDIO_DIRECT_MODE | INDIO_BUFFER_HARDWARE;
-	indio_dev_tx->info = &fft_accelerator_empty_info;
-	indio_dev_tx->channels = fft_accelerator_chan_spec;
-	indio_dev_tx->num_channels = ARRAY_SIZE(fft_accelerator_chan_spec);
-	indio_dev_tx->direction = IIO_DEVICE_DIRECTION_OUT;
-	indio_dev_tx->setup_ops = &fft_accelerator_tx_setup_ops;
-
-	printk("FFT Accelerator dmaengine_buffer_alloc\n");
-	buffer_tx = devm_iio_dmaengine_buffer_alloc(&pdev->dev, "tx", &fft_accelerator_dma_buffer_ops,
-						    indio_dev_tx);
-	if (IS_ERR(buffer_tx))
-		return PTR_ERR(buffer_tx);
-
-	printk("FFT Accelerator iio_device_attach_buffer\n");
-	iio_device_attach_buffer(indio_dev_tx, buffer_tx);
-
-	printk("FFT Accelerator iio_device_set_drvdata\n");
-	iio_device_set_drvdata(indio_dev_tx, st);
-
-	printk("FFT Accelerator devm_iio_device_register\n");
-	ret = devm_iio_device_register(&pdev->dev, indio_dev_tx);
-	if (ret)
-		return ret;
-
-	printk("FFT Accelerator RX\n");
-
-	indio_dev_rx->dev.parent = &pdev->dev;
-	indio_dev_rx->name = "fft-accelerator-rx";
-	indio_dev_rx->modes = INDIO_DIRECT_MODE | INDIO_BUFFER_HARDWARE;
-	indio_dev_rx->info = &fft_accelerator_empty_info;
-	indio_dev_rx->channels = fft_accelerator_chan_spec;
-	indio_dev_rx->num_channels = ARRAY_SIZE(fft_accelerator_chan_spec);
-
-	buffer_rx = devm_iio_dmaengine_buffer_alloc(&pdev->dev, "rx", &fft_accelerator_dma_buffer_ops,
-						    indio_dev_rx);
-	if (IS_ERR(buffer_rx))
-		return PTR_ERR(buffer_rx);
-	iio_device_attach_buffer(indio_dev_rx, buffer_rx);
-
-	iio_device_set_drvdata(indio_dev_rx, st);
-
-	return devm_iio_device_register(&pdev->dev, indio_dev_rx);
 
 	printk("probing FFT Accelerator DONE!\n");
 	return 0;

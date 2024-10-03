@@ -86,7 +86,7 @@
 			};
 		};
 
-		tx1_dma: tx0-dmac@43c10000 {
+		tx1_dma: tx1-dmac@43c10000 {
 			compatible = "adi,axi-dmac-1.00.a";
 			reg = <0x43c10000 0x10000>;
 			#dma-cells = <1>;
@@ -115,7 +115,7 @@
 			clock-names = "dac_clk";
 		};
 
-		fft_dma_in: dmac@43c20000 {
+		fft_dma_in: fft_in_dmac@43c20000 {
 			compatible = "adi,axi-dmac-1.00.a";
 			reg = <0x43c20000 0x10000>;
 			#dma-cells = <1>;
@@ -137,7 +137,7 @@
 			};
 		};
 
-		fft_dma_out: dmac@43c30000 {
+		fft_dma_out: fft_out_dmac@43c30000 {
 			compatible = "adi,axi-dmac-1.00.a";
 			reg = <0x43c10000 0x10000>;
 			#dma-cells = <1>;
@@ -173,6 +173,13 @@
 			xlnx,interrupt-present = <0x0>;
 			xlnx,is-dual = <0x0>;
 			xlnx,tri-default = <0xffffffff>;
+		};
+
+		fft_accelerator: fft_accelerator@0 {
+			compatible = "fft_accelerator";
+			clocks = <&clkc 16>;
+			dmas = <&fft_dma_in 0>, <&fft_dma_out 0>;
+			dma-names = "in", "out";
 		};
 	};
 
@@ -730,4 +737,10 @@
 		reg = <2>;
 		spi-max-frequency = <1000000>;
 	}; */
+};
+
+&watchdog0 {
+    status = "okay";
+    reset-on-timeout;
+    timeout-sec = <60>;
 };
