@@ -85,10 +85,10 @@ static int fft_accelerator_submit_block(
 	if (indio_dev->direction == IIO_DEVICE_DIRECTION_IN) {
 		block->block.bytes_used = block->block.size;
 		ret = iio_dmaengine_buffer_submit_block(queue, block, DMA_DEV_TO_MEM);
-		printk("FFT Accelerator submit IN: %d\n", ret);
+		printk("FFT Accelerator submit dev->mem: %d\n", ret);
 	} else {
 		ret = iio_dmaengine_buffer_submit_block(queue, block, DMA_MEM_TO_DEV);
-		printk("FFT Accelerator submit OUT: %d\n", ret);
+		printk("FFT Accelerator submit mem->dev: %d\n", ret);
 	}
 
 	return ret;
@@ -156,7 +156,7 @@ static int fft_accelerator_probe(struct platform_device *pdev)
 	indio_dev_in->info = &fft_accelerator_info;
 	indio_dev_in->channels = fft_accelerator_in_chan_spec,
 	indio_dev_in->num_channels = ARRAY_SIZE(fft_accelerator_in_chan_spec);
-	indio_dev_out->direction = IIO_DEVICE_DIRECTION_IN;
+	indio_dev_out->direction = IIO_DEVICE_DIRECTION_OUT;
 	iio_device_set_drvdata(indio_dev_in, st);
 
 	st = iio_priv(indio_dev_out);
@@ -166,7 +166,7 @@ static int fft_accelerator_probe(struct platform_device *pdev)
 	indio_dev_out->info = &fft_accelerator_info;
 	indio_dev_out->channels = fft_accelerator_out_chan_spec,
 	indio_dev_out->num_channels = ARRAY_SIZE(fft_accelerator_out_chan_spec);
-	indio_dev_out->direction = IIO_DEVICE_DIRECTION_OUT;
+	indio_dev_out->direction = IIO_DEVICE_DIRECTION_IN;
 	iio_device_set_drvdata(indio_dev_out, st);
 
 	buffer_in = devm_iio_dmaengine_buffer_alloc(&pdev->dev, "in",
