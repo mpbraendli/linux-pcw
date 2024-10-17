@@ -139,7 +139,7 @@
 
 		fft_dma_out: fft_out_dmac@43c30000 {
 			compatible = "adi,axi-dmac-1.00.a";
-			reg = <0x43c10000 0x10000>;
+			reg = <0x43c30000 0x10000>;
 			#dma-cells = <1>;
 			interrupts = <0 32 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-parent = <&intc>;
@@ -181,7 +181,6 @@
 			dmas = <&fft_dma_in 0>, <&fft_dma_out 0>;
 			dma-names = "in", "out";
 		};
-	};
 	};
 
 	dac_vref: regulator-3v3 {

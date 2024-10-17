@@ -23,8 +23,83 @@
 
 #define DRIVER_NAME "fft_accelerator"
 
-static struct iio_chan_spec_ext_info fft_accelerator_ext_info[] = {
-	{ },
+static const struct iio_chan_spec fft_accelerator_out_chan_spec[] = {
+	{
+		.type = IIO_VOLTAGE,
+		.extend_name = "out",
+		.output = 1,
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+		.indexed = 1,
+		.channel = 0,
+		.scan_index = 0,
+		.scan_type = {
+			.sign = 's',
+			.realbits = 8,
+			.storagebits = 8,
+		},
+	}
+};
+
+static const struct iio_chan_spec fft_accelerator_in_chan_spec[] = {
+	{
+		.type = IIO_VOLTAGE,
+		.extend_name = "in",
+		.output = 0,
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+		.indexed = 1,
+		.channel = 0,
+		.scan_index = 0,
+		.scan_type = {
+			.sign = 's',
+			.realbits = 8,
+			.storagebits = 8,
+		},
+	}
+};
+
+static int fft_accelerator_submit_block(
+		struct iio_dma_buffer_queue *queue,
+		struct iio_dma_buffer_block *block)
+{
+	struct iio_dev *indio_dev;
+	int ret;
+
+	if (!queue) {
+		printk("FFT Accelerator submit queue=NULL!\n");
+		return -EINVAL;
+	}
+
+	if (!queue->driver_data) {
+		printk("FFT Accelerator submit queue->driver_data=NULL!\n");
+		return -EINVAL;
+	}
+
+
+	if (!block) {
+		printk("FFT Accelerator submit block=NULL!\n");
+		return -EINVAL;
+	}
+
+	indio_dev = queue->driver_data;
+
+	if (indio_dev->direction == IIO_DEVICE_DIRECTION_IN) {
+		block->block.bytes_used = block->block.size;
+		ret = iio_dmaengine_buffer_submit_block(queue, block, DMA_DEV_TO_MEM);
+		printk("FFT Accelerator submit IN: %d\n", ret);
+	} else {
+		ret = iio_dmaengine_buffer_submit_block(queue, block, DMA_MEM_TO_DEV);
+		printk("FFT Accelerator submit OUT: %d\n", ret);
+	}
+
+	return ret;
+}
+
+static const struct iio_dma_buffer_ops fft_accelerator_dma_buffer_ops = {
+	.submit = fft_accelerator_submit_block,
+	.abort = iio_dmaengine_buffer_abort,
+};
+
+struct fft_accelerator_state{
 };
 
 /* we need that dummy function to get a valid iio_info object */
@@ -35,128 +110,8 @@ static int fft_accelerator_read_raw_dummy(struct iio_dev *indio_dev,
 	return -EINVAL;
 }
 
-static const struct iio_chan_spec fft_accelerator_chan_spec[] = {
-	{
-		.type = IIO_VOLTAGE,
-		.extend_name = "out",
-		.output = 1,
-		.indexed = 1,
-		.channel = 0,
-		.address = 0,
-		.info_mask_separate = BIT(IIO_CHAN_INFO_HARDWAREGAIN),
-		.scan_index = 0,
-		.ext_info = fft_accelerator_ext_info,
-	},
-	{
-		.type = IIO_VOLTAGE,
-		.extend_name = "in",
-		.output = 0,
-		.indexed = 1,
-		.channel = 1,
-		.address = 1,
-		.info_mask_separate = BIT(IIO_CHAN_INFO_HARDWAREGAIN),
-		.scan_index = 1,
-		.ext_info = fft_accelerator_ext_info,
-	}
-};
-
-static int fft_accelerator_submit_block(
-		struct iio_dma_buffer_queue *queue,
-		struct iio_dma_buffer_block *block)
-{
-	struct iio_dev *indio_dev = queue->driver_data;
-
-	if (indio_dev->direction == IIO_DEVICE_DIRECTION_IN) {
-		printk("FFT Accelerator submit IN\n");
-		block->block.bytes_used = block->block.size;
-		iio_dmaengine_buffer_submit_block(queue, block, DMA_DEV_TO_MEM);
-	} else {
-		printk("FFT Accelerator submit OUT\n");
-		iio_dmaengine_buffer_submit_block(queue, block, DMA_MEM_TO_DEV);
-	}
-
-	return 0;
-}
-
-static const struct iio_dma_buffer_ops fft_accelerator_dma_buffer_ops = {
-	.submit = fft_accelerator_submit_block,
-	.abort = iio_dmaengine_buffer_abort,
-};
-
-enum attributes {
-	FA_ATTR_DUMMY,
-};
-
-struct fft_accelerator_state{
-	u32 dummyattribute;
-};
-
-static ssize_t fft_accelerator_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t len)
-{
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
-	struct fft_accelerator_state *st = iio_priv(indio_dev);
-	long val;
-	int ret = 0;
-
-	mutex_lock(&indio_dev->mlock);
-	switch ((u32)this_attr->address){
-	case FA_ATTR_DUMMY:
-		st->dummyattribute = val;
-		break;
-	default:
-		ret = -ENODEV;
-	}
-	mutex_unlock(&indio_dev->mlock);
-
-	return ret ? ret : len;
-}
-
-static ssize_t fft_accelerator_show(struct device *dev,
-			struct device_attribute *attr,
-			char *buf)
-{
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
-	struct fft_accelerator_state *st = iio_priv(indio_dev);
-	u32 val = 0;
-	int ret = 0;
-
-	mutex_lock(&indio_dev->mlock);
-	switch ((u32)this_attr->address){
-	case FA_ATTR_DUMMY:
-		val = st->dummyattribute;
-		break;
-	default:
-		ret = -ENODEV;
-	}
-	mutex_unlock(&indio_dev->mlock);
-
-	if(ret==0){
-		ret = sprintf(buf, "%d\n", val);
-	}
-	return ret;
-}
-
-static IIO_DEVICE_ATTR(Dummy, S_IRUGO | S_IWUSR,
-			fft_accelerator_show,
-			fft_accelerator_store,
-			FA_ATTR_DUMMY);
-
-static struct attribute *fft_accelerator_attributes[] = {
-	&iio_dev_attr_Dummy.dev_attr.attr,
-	NULL
-};
-
-static const struct attribute_group fft_accelerator_attribute_group = {
-	.attrs = fft_accelerator_attributes,
-};
-
 static const struct iio_info fft_accelerator_info = {
 	.read_raw = &fft_accelerator_read_raw_dummy,
-	.attrs = &fft_accelerator_attribute_group,
 };
 
 static const struct of_device_id fft_accelerator_of_match[] = {
@@ -168,7 +123,7 @@ MODULE_DEVICE_TABLE(of, fft_accelerator_of_match);
 static int fft_accelerator_probe(struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;	// for devicetree parsing
-	struct iio_dev *indio_dev;
+	struct iio_dev *indio_dev_in, *indio_dev_out;
 	struct fft_accelerator_state *st;
 	struct iio_buffer *buffer_out, *buffer_in;
 	const struct of_device_id *id;
@@ -181,42 +136,69 @@ static int fft_accelerator_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	indio_dev = devm_iio_device_alloc(&pdev->dev, sizeof(*st));
-	if (!indio_dev) {
-		printk("\nFFT Accelerator: -ENOMEM\n");
+	indio_dev_in = devm_iio_device_alloc(&pdev->dev, sizeof(*st));
+	if (!indio_dev_in) {
+		printk("\nFFT Accelerator IN: -ENOMEM\n");
 		return -ENOMEM;
 	}
 
-	st = iio_priv(indio_dev);
-	indio_dev->name = np->name;
-	indio_dev->modes = INDIO_DIRECT_MODE | INDIO_BUFFER_HARDWARE;
-	indio_dev->info = &fft_accelerator_info;
-	indio_dev->channels = fft_accelerator_chan_spec,
-	indio_dev->num_channels = ARRAY_SIZE(fft_accelerator_chan_spec);
+	indio_dev_out = devm_iio_device_alloc(&pdev->dev, sizeof(*st));
+	if (!indio_dev_out) {
+		printk("\nFFT Accelerator OUT: -ENOMEM\n");
+		return -ENOMEM;
+	}
 
-	buffer_in = devm_iio_dmaengine_buffer_alloc(&pdev->dev,
-			"in", &fft_accelerator_dma_buffer_ops, NULL);
+	st = iio_priv(indio_dev_in);
+
+	indio_dev_in->dev.parent = &pdev->dev;
+	indio_dev_in->name = "fft-accelerator-in";
+	indio_dev_in->modes = INDIO_DIRECT_MODE | INDIO_BUFFER_HARDWARE;
+	indio_dev_in->info = &fft_accelerator_info;
+	indio_dev_in->channels = fft_accelerator_in_chan_spec,
+	indio_dev_in->num_channels = ARRAY_SIZE(fft_accelerator_in_chan_spec);
+	indio_dev_out->direction = IIO_DEVICE_DIRECTION_IN;
+	iio_device_set_drvdata(indio_dev_in, st);
+
+	st = iio_priv(indio_dev_out);
+	indio_dev_out->dev.parent = &pdev->dev;
+	indio_dev_out->name = "fft-accelerator-out";
+	indio_dev_out->modes = INDIO_DIRECT_MODE | INDIO_BUFFER_HARDWARE;
+	indio_dev_out->info = &fft_accelerator_info;
+	indio_dev_out->channels = fft_accelerator_out_chan_spec,
+	indio_dev_out->num_channels = ARRAY_SIZE(fft_accelerator_out_chan_spec);
+	indio_dev_out->direction = IIO_DEVICE_DIRECTION_OUT;
+	iio_device_set_drvdata(indio_dev_out, st);
+
+	buffer_in = devm_iio_dmaengine_buffer_alloc(&pdev->dev, "in",
+			&fft_accelerator_dma_buffer_ops, indio_dev_in);
 	if (IS_ERR(buffer_in)) {
 		printk("FFT Accelerator buffer_in dmaengine_buffer_alloc IS ERR!\n");
 		return PTR_ERR(buffer_in);
 	}
-	iio_device_attach_buffer(indio_dev, buffer_in);
+	iio_device_attach_buffer(indio_dev_in, buffer_in);
 
-	buffer_out = devm_iio_dmaengine_buffer_alloc(&pdev->dev,
-			"out", &fft_accelerator_dma_buffer_ops, NULL);
+	buffer_out = devm_iio_dmaengine_buffer_alloc(&pdev->dev, "out",
+			&fft_accelerator_dma_buffer_ops, indio_dev_out);
 	if (IS_ERR(buffer_out)) {
 		printk("FFT Accelerator buffer_out dmaengine_buffer_alloc IS ERR!\n");
 		return PTR_ERR(buffer_out);
 	}
-	iio_device_attach_buffer(indio_dev, buffer_out);
+	iio_device_attach_buffer(indio_dev_out, buffer_out);
 
-	ret = devm_iio_device_register(&pdev->dev, indio_dev);
+	ret = devm_iio_device_register(&pdev->dev, indio_dev_in);
 	if (ret < 0) {
-		dev_err(&pdev->dev, "devm_iio_device_register failed");
+		dev_err(&pdev->dev, "devm_iio_device_register in failed");
 		return ret;
 	}
 
-	platform_set_drvdata(pdev, indio_dev);
+	ret = devm_iio_device_register(&pdev->dev, indio_dev_out);
+	if (ret < 0) {
+		dev_err(&pdev->dev, "devm_iio_device_register in failed");
+		return ret;
+	}
+
+	platform_set_drvdata(pdev, indio_dev_in);
+	platform_set_drvdata(pdev, indio_dev_out);
 
 	printk("probing FFT Accelerator DONE!\n");
 	return 0;
