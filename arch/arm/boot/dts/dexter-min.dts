@@ -159,6 +159,7 @@
 			};
 		};
 
+        /* not used in production
 		fft_gpio: axi_gpio@41200000 {
 			#gpio-cells = <2>;
 			compatible = "xlnx,xps-gpio-1.00.a";
@@ -174,6 +175,7 @@
 			xlnx,is-dual = <0x0>;
 			xlnx,tri-default = <0xffffffff>;
 		};
+        */
 
 		fft_accelerator: fft_accelerator@0 {
 			compatible = "fft_accelerator";
